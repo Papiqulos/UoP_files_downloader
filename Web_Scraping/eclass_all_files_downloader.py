@@ -80,11 +80,11 @@ class EclassAllFileDownloader(ctk.CTk):
 
         self.usernameLabel = ctk.CTkLabel(master=self.myFrame, text='Username')
 
-        self.usernameInput = ctk.CTkEntry(master=self.myFrame, text_font=('calibre', 10), width=200)
+        self.usernameInput = ctk.CTkEntry(master=self.myFrame, width=200)
 
         self.passwordLabel = ctk.CTkLabel(master=self.myFrame, text='Password', )
 
-        self.passwordInput = ctk.CTkEntry(master=self.myFrame, text_font=('calibre', 10), width=200, show='*')
+        self.passwordInput = ctk.CTkEntry(master=self.myFrame, width=200, show='*')
 
         self.checkButton = ctk.CTkSwitch(master=self.myFrame, text="Show password", command=self.toggle)
 
