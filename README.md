@@ -5,4 +5,4 @@
  Requirements: >>pip install selenium
                >>pip install bs4
                >>pip install lxml
-               >>pip install webdriver_manager
+               >>pip install webdriver-manager
