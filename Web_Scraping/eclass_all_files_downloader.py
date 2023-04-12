@@ -1,20 +1,14 @@
 import time
-import customtkinter as ctk
-import selenium
+import re
+from bs4 import BeautifulSoup
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import NoSuchElementException
 
 url_eclass = "https://eclass.upatras.gr/"  # url του eclass
-
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("green")
-
-
-# Μπούρδα
-def sleep():
-    time.sleep(0.5)
 
 
 # General function for interacting with scraped elements
@@ -41,181 +35,124 @@ def scraped_element_action(driver, TYPE, value_var, action, send_keys_value="", 
 def subject_downloader(driver, subject, time_to_download):
     # Clicking Subject
     scraped_element_action(driver, "link_text", subject, "click")
-
-    # Clicking Dropdown Menu
-    scraped_element_action(driver, "xpath", '//*[@id="header"]/button/span[1]', "click")
+    driver.implicitly_wait(50)
+    print('--Clicked Subject--')
 
     # Clicking Έγγραφα
-    scraped_element_action(driver, "link_text", 'Έγγραφα', "click", time_to_wait=1)
+
+    # Μερικές φορές δεν βρίσκει τα Έγγραφα μόνο από το όνομα
+    # γι΄αυτο χειρίζομαι το error και μετα βλέπω αν
+    # υπάρχει το πεδίο Ασκήσεις για να επιλεχτεί το κατάλληλο xpath
+    try:
+        # print("try1")
+        scraped_element_action(driver, "link_text", "Έγγραφα", "click")
+    except NoSuchElementException:
+        # print("except1")
+        if determine_askhseis(driver) is True:
+            scraped_element_action(driver, "xpath", '//*[@id="collapse0"]/a[3]/span[2]', "click")
+        else:
+            scraped_element_action(driver, "xpath", '//*[@id="collapse0"]/a[2]/span[2]', "click")
+    print('--Clicked Έγγραφα--')
 
     # Clicking Λήψη Όλου του Καταλόγου
     scraped_element_action(driver, "xpath", '//*[@id="main-content"]/div/div/div[3]/div/div/div/div/a[2]/span', "click")
-
+    print('--Clicked Λήψη Όλου του Κατάλογου--')
+    print('Downloading. Check Downloads Folder')
     time.sleep(time_to_download)
 
 
-# Main GUI
-class EclassAllFileDownloader(ctk.CTk):
+# Web Scraping(sort of)
+def download_all_files_eclass(username, password, time_to_download=5):
+    # Making the Browser headless(no open window)
+    options = Options()
+    options.add_argument("--headless=new")
 
-    WIDTH = 780
-    HEIGHT = 520
+    # Opening a Chrome tab
+    driver = webdriver.Chrome(service=ChromeService(executable_path=ChromeDriverManager().install()), options=options)
+    driver.maximize_window()
 
-    def __init__(self):
-        super().__init__()
+    # Going to a specific url
+    driver.get(url_eclass)
+    driver.implicitly_wait(50)  # Waiting for things to load before scraping them
 
-        self.iconbitmap("images\logo.ico")
-        self.title("Upatras Eclass All File Downloader")
-        self.geometry(f"{EclassAllFileDownloader.WIDTH}x{EclassAllFileDownloader.HEIGHT}")
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+    # Clicking Είσοδος
+    scraped_element_action(driver, "xpath", '//*[@id="main-content"]/div/div/div[2]/div/div/div/div/div/div['
+                                            '1]/div[1]/a', "click")
+    driver.implicitly_wait(50)
+    print('--Clicked Είσοδος--')
 
-        self.myFrame = ctk.CTkFrame(master=self, width=780, height=520)
-        self.myFrame.grid(row=0, column=0, sticky="ew", padx=30, pady=100)
+    # Typing username
+    scraped_element_action(driver, "name", "j_username", "sendkeys", username)
+    driver.implicitly_wait(50)
+    print('--Typed username--')
 
-        self.subjectLabel = ctk.CTkLabel(master=self.myFrame, text='Subject')
+    # Typing password
+    scraped_element_action(driver, "name", "j_password", "sendkeys", password)
+    driver.implicitly_wait(50)
+    print('--Typed password--')
 
-        self.subjectInput = ctk.CTkEntry(master=self.myFrame, width=200)
+    # Clicking Σύνδεση
+    scraped_element_action(driver, "xpath", '//*[@id="loginButton"]', "click")
+    driver.implicitly_wait(50)
+    print('--Clicked Σύνδεση--')
 
-        self.subjectNotice = ctk.CTkLabel(master=self.myFrame,
-                                          text='!!Το μάθημα πρέπει να γράφτει έτσι όπως είναι στο eclass!!')
+    # Clicking Όλα τα μαθήματα
+    scraped_element_action(driver, "xpath", '//*[@id="portfolio_lessons_wrapper"]/div[1]/a', "click")
+    driver.implicitly_wait(50)
+    print('--Clicked Σύνδεση--')
 
-        self.usernameLabel = ctk.CTkLabel(master=self.myFrame, text='Username')
+    # Selecting the Subject
+    print('Loading Subjects...')
+    subjects = get_list_of_classes(driver)
+    print(*(f'{i + 1}.{subjects[i]}' for i in range(len(subjects))), sep='\n')
+    subject_number = input('Choose Subject(Number): ')
+    if subject_number.lower() == 'x' or subject_number.lower() == 'χ':
+        quit()
+    print(subjects[int(subject_number) - 1])
+    subject_downloader(driver, subjects[int(subject_number) - 1].strip(), time_to_download)
 
-        self.usernameInput = ctk.CTkEntry(master=self.myFrame, width=200)
+    driver.quit()
 
-        self.passwordLabel = ctk.CTkLabel(master=self.myFrame, text='Password', )
 
-        self.passwordInput = ctk.CTkEntry(master=self.myFrame, width=200, show='*')
+# Gets the specific classes of the student
+def get_list_of_classes(driver):
+    html = driver.page_source
+    soup = BeautifulSoup(html, 'lxml')
+    subjects = []
+    mathimata_class = soup.find_all('strong')
+    print(f'Σύνολο Μαθημάτων: {len(mathimata_class)}')
+    for subject in mathimata_class:
+        # print(subject.get_text())
+        subjects.append(subject.get_text())
+    return subjects
 
-        self.checkButton = ctk.CTkSwitch(master=self.myFrame, text="Show password", command=self.toggle)
 
-        self.myButton = ctk.CTkButton(master=self.myFrame, text="Initialize Process",
-                                      command=
-                                      lambda: self.download_all_files_eclass(self.subjectInput.get().strip(),
-                                                                             self.usernameInput.get().replace(" ", ""),
-                                                                             self.passwordInput.get().replace(" ", "")))
-
-        self.label_mode = ctk.CTkLabel(master=self.myFrame, text="Appearance Mode:")
-
-        self.optionmenu_1 = ctk.CTkOptionMenu(master=self.myFrame,
-                                              values=["Dark", "Light", "System"],
-                                              command=self.change_appearance_mode)
-
-        # Binding Enter to initialize process when focused on subject, username, password or the window
-        # NOT FUNCTIONAL gia kapoio gamhmeno logo
-
-        # self.subjectInput.bind("<Return>", lambda event,
-        #                                           subject=self.subjectInput.get(), username=self.usernameInput.get(),
-        #                                           password=self.passwordInput.get():
-        # self.download_all_files_eclass(subject, username, password))
-        #
-        # self.usernameInput.bind("<Return>", lambda event,
-        #                                            subject=self.subjectInput.get(), username=self.usernameInput.get(),
-        #                                            password=self.passwordInput.get():
-        # self.download_all_files_eclass(subject, username, password))
-        #
-        # self.passwordInput.bind("<Return>", lambda event,
-        #                                            subject=self.subjectInput.get(), username=self.usernameInput.get(),
-        #                                            password=self.passwordInput.get():
-        # self.download_all_files_eclass(subject, username, password))
-        #
-        # self.bind("<Return>", lambda event,
-        #                              subject=self.subjectInput.get(), username=self.usernameInput.get(),
-        #                              password=self.passwordInput.get():
-        #
-        # self.download_all_files_eclass(subject, username, password))
-
-        self.var = 0  # Βοηθητική παράμετρος για την toggle()
-
-        # Putting stuff on window
-        self.subjectLabel.grid(row=1, column=0)
-        self.subjectInput.grid(row=1, column=1)
-        self.subjectNotice.grid(row=1, column=2)
-
-        self.usernameLabel.grid(row=3, column=0)
-        self.usernameInput.grid(row=3, column=1)
-
-        self.passwordLabel.grid(row=5, column=0)
-        self.passwordInput.grid(row=5, column=1)
-
-        self.checkButton.grid(row=5, column=2)
-
-        self.myButton.grid(row=7, column=1)
-
-        self.label_mode.grid(row=9, column=0, pady=0, padx=20, sticky="w")
-
-        self.optionmenu_1.grid(row=11, column=0, pady=10, padx=20, sticky="w")
-
-    # Show password or hide password with autistic method
-    def toggle(self):
-        self.var += 1
-        print(self.var)
-        if self.var % 2:
-            self.passwordInput.configure(show="")
-        else:
-            self.passwordInput.configure(show="*")
-
-    # Change theme
-    def change_appearance_mode(self, new_appearance_mode):
-        ctk.set_appearance_mode(new_appearance_mode)
-
-    # Necessary function so that the program exits properly when pressing X
-    def on_closing(self, event=0):
-        self.destroy()
-
-    # Web Scraping
-    def download_all_files_eclass(self, subject, username, password, time_to_download=30):
-
-        # Opening a Chrome tab
-        driver = webdriver.Chrome(service=ChromeService(executable_path=ChromeDriverManager().install()))
-
-        # Going to a specific url
-        driver.get(url_eclass)
-        driver.implicitly_wait(0.5)  # Waiting for things to load before scraping them
-
-        # Clicking Είσοδος
-        scraped_element_action(driver, "xpath", '//*[@id="main-content"]/div/div/div[2]/div/div/div/div/div/div['
-                                                '1]/div[1]/a', "click")
-
-        # Typing username
-        scraped_element_action(driver, "name", "j_username", "sendkeys", username)
-
-        # Typing password
-        scraped_element_action(driver, "name", "j_password", "sendkeys", password)
-
-        # Clicking Σύνδεση
-        scraped_element_action(driver, "xpath", '//*[@id="loginButton"]', "click")
-
-        # Clicking Όλα τα μαθήματα
-        scraped_element_action(driver, "xpath", '//*[@id="portfolio_lessons_wrapper"]/div[1]/a', "click")
-
-        # Handling the case where the student hasn't signed up for the class, UNSUCCESSFULLY for the time being
-
-        try:
-            subject_downloader(driver, subject, time_to_download)
-
-        except selenium.common.exceptions.NoSuchElementException:       # Very common exception needs something else
-
-            # Clicking Εγγραφη σε μάθημα
-            scraped_element_action(driver, "link_text", "Εγγραφή σε μάθημα", "click")
-
-            # Clicking Προπτυχιακό
-            scraped_element_action(driver, "link_text", "Προπτυχιακό", "click")
-
-            # Clicking checkbox για εγγραφή
-            # Help
-
-            # Clicking Επιστροφή
-            scraped_element_action(driver, "link_text", "Επιστροφή", "click")
-
-            # Clicking Όλα τα μαθήματα
-            scraped_element_action(driver, "xpath", '//*[@id="portfolio_lessons_wrapper"]/div[1]/a', "click")
-
-            # Downloading the files as usual
-            subject_downloader(driver, subject, time_to_download)
-
-        driver.quit()
+# True αν υπάρχει το πεδίο Ασκήσεις , Else όταν δεν υπάρχει
+def determine_askhseis(driver):
+    html = driver.page_source
+    soup = BeautifulSoup(html, 'lxml')  # σούπα
+    karteles = soup.find_all('a', {"class": "list-group-item"})
+    askhseis_me_skoupidia = re.sub(r"[\n\t\s]*", "", karteles[1].get_text())  # βγάζει όλα τα tabs, whitespaces,
+    # newlines
+    askhseis_xwris_skoupidia = re.sub(r'[0-9]+', '', askhseis_me_skoupidia)  # βγάζει όλους τους αριθμούς
+    if askhseis_xwris_skoupidia == 'Ασκήσεις':
+        return True
+    else:
+        return False
 
 
 if __name__ == '__main__':
-    obj = EclassAllFileDownloader()
-    obj.mainloop()
+    try:
+        print('Eclass File Downloader(Press X or x in any field to exit)')
+        username = input('username: ')
+        if username.lower() == 'x' or username.lower() == 'χ':
+            quit()
+        password = input('password: ')
+        if password.lower() == 'x' or password.lower() == 'χ':
+            quit()
+        # username = "upXXXXXX"
+        # password = "xxxxxxx"
+        download_all_files_eclass(username, password)
+        print("Done!")
+    except KeyboardInterrupt:
+        quit()
